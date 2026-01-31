@@ -4,7 +4,7 @@ use criterion::{criterion_group, criterion_main, Criterion, BenchmarkId};
 use bench_graph::prelude::*;
 use rand::random;
 
-type T = u8;
+type T = u128;
 
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -91,7 +91,8 @@ fn generate_nodes(size: usize, set_size: usize) -> Vec<(T, Ordering)> {
 }
 
 fn generate_random_priority() -> f64 {
-    random()
+    // random()
+    0.0
 }
 
 fn generate_random_set(set_size: usize) -> HashSet<T> {
