@@ -1,5 +1,5 @@
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Link<Identifier, Priority> {
     pub from: Identifier,
     pub to: Identifier,
