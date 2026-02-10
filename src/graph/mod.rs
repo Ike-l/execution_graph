@@ -339,4 +339,90 @@ mod tests {
         let leaves = graph.find_leaves();
         assert_eq!(leaves.len(), 0);
     }
+
+    #[test]
+    fn complex_cycle() {
+        init_tracing();
+
+        let span = span!(Level::DEBUG, "Complex Cycle");
+        let _enter = span.enter();
+
+        let a = "A";
+        let b = "B";
+        let c = "C";
+        let d = "D";
+        let e = "E";
+        let f = "F";
+        let g = "G";
+        
+        let priority = 0;
+        
+        let links = vec![
+            Link::new(a, b, priority), 
+            Link::new(b, c, priority), 
+            Link::new(c, d, priority), 
+            Link::new(c, e, priority + 1), 
+            Link::new(e, b, priority + 2), 
+            Link::new(e, f, priority), 
+            Link::new(g, e, priority), 
+        ];
+        span.record("Links", format!("{links:?}"));
+
+        let graph = Graph::new(links);
+        event!(Level::DEBUG, nodes =? graph.nodes());
+
+        let leaves = graph.find_leaves();
+        event!(Level::DEBUG, leaves =? leaves, "Leaves");
+
+        let mut not_seen = HashSet::new();
+        not_seen.extend([
+            a.to_string(),
+            c.to_string(),
+            g.to_string(),
+        ]);
+
+        for leaf in leaves {
+            let span = span!(Level::DEBUG, "Leaf", data =? leaf.lock().unwrap().data());
+            let _enter = span.enter();
+            assert!(not_seen.contains(&leaf.lock().unwrap().data().to_string()));
+            not_seen.remove(&leaf.lock().unwrap().data().to_string());  
+
+            leaf.lock().unwrap().complete();
+        }
+
+        let leaves = graph.find_leaves();
+        event!(Level::DEBUG, leaves =? leaves, "Leaves");
+
+        let mut not_seen = HashSet::new();
+        not_seen.extend([
+            d.to_string(),
+            e.to_string(),
+        ]);
+
+        for leaf in leaves {
+            assert!(not_seen.contains(&leaf.lock().unwrap().data().to_string()));
+            not_seen.remove(&leaf.lock().unwrap().data().to_string());  
+
+            leaf.lock().unwrap().complete();
+        }
+
+        let leaves = graph.find_leaves();
+        event!(Level::DEBUG, leaves =? leaves, "Leaves");
+
+        let mut not_seen = HashSet::new();
+        not_seen.extend([
+            f.to_string(),
+            b.to_string(),
+        ]);
+
+        for leaf in leaves {
+            assert!(not_seen.contains(&leaf.lock().unwrap().data().to_string()));
+            not_seen.remove(&leaf.lock().unwrap().data().to_string());  
+
+            leaf.lock().unwrap().complete();
+        }
+
+        let leaves = graph.find_leaves();
+        assert_eq!(leaves.len(), 0);
+    }
 }
