@@ -1,8 +1,7 @@
-use std::{fmt::Debug, rc::Rc, sync::atomic::{AtomicBool, AtomicUsize, Ordering}};
+use std::{fmt::Debug, rc::Rc, sync::{Mutex, atomic::{AtomicBool, AtomicUsize, Ordering}}};
 
 use tracing::{Level, event, span};
 
-#[derive(Debug)]
 pub struct Node<T> {
     // ready when 0
     ready: AtomicUsize,
@@ -11,7 +10,20 @@ pub struct Node<T> {
     data: T,
 
     // Self or index to container
-    out_neighbours: Vec<Rc<Self>>,
+    out_neighbours: Vec<Rc<Mutex<Self>>>,
+}
+
+impl<T: Debug> Debug for Node<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f, 
+            "{:?}, ready: {:?}, completed: {:?}, neighbours: {:?}", 
+                self.data, 
+                self.ready, 
+                self.completed, 
+                self.out_neighbours.len()
+        )
+    }
 }
 
 impl<
@@ -30,7 +42,7 @@ impl<
         &self.data
     }
 
-    pub fn insert_out_neighbour(&mut self, neighbour: Rc<Self>) {
+    pub fn insert_out_neighbour(&mut self, neighbour: Rc<Mutex<Self>>) {
         self.out_neighbours.push(neighbour);
     }
 
@@ -51,7 +63,7 @@ impl<
         assert!(result.is_ok());
 
         for neighbour in self.out_neighbours.iter() {
-            neighbour.make_ready();
+            neighbour.lock().unwrap().make_ready();
         }
     }
 }
@@ -74,6 +86,12 @@ impl<
 
         seen.push(&self.data);
         self.out_neighbours.iter().any(|neighbour| {
+            // Assuming the guard is held by the current function, this would indicate a cycle
+            let Ok(neighbour) = neighbour.try_lock() else { 
+                event!(Level::TRACE, "Failed to get guard");
+                return false 
+            };
+
             let span = span!(Level::TRACE, "Checking neighbour", data =? neighbour.data());
             let _enter = span.enter();
             

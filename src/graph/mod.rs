@@ -7,15 +7,15 @@ use crate::{graph::node::Node, link::Link};
 pub mod node;
 
 pub struct Graph<T> {
-    nodes: Vec<Rc<Node<T>>>
+    nodes: Vec<Rc<Mutex<Node<T>>>>
 }
 
 impl<
     T: Debug
 > Graph<T> {
-    pub fn find_leaves(&self) -> Vec<Rc<Node<T>>> {
+    pub fn find_leaves(&self) -> Vec<Rc<Mutex<Node<T>>>> {
         self.nodes.iter().filter_map(|node| {
-            if node.is_ready() {
+            if node.lock().unwrap().is_ready() {
                 Some(Rc::clone(node))
             } else {
                 None
@@ -23,7 +23,7 @@ impl<
         }).collect()
     }
 
-    pub fn nodes(&self) -> &Vec<Rc<Node<T>>> {
+    pub fn nodes(&self) -> &Vec<Rc<Mutex<Node<T>>>> {
         &self.nodes
     }
 }
@@ -40,16 +40,15 @@ impl<T> Graph<T>
         links.sort();
         event!(Level::TRACE, "Sorted links");
 
-        let mut nodes: Vec<Mutex<Rc<Node<T>>>> = Vec::with_capacity(links.len());
+        let mut nodes: Vec<Rc<Mutex<Node<T>>>> = Vec::with_capacity(links.len());
         while let Some(Link { from, to, ..}) = links.pop() {
             let span = span!(Level::TRACE, "Found Link", from =? from, to =? to);
             let _enter = span.enter();
 
             let to_node = if let Some(to_node) = nodes.iter().find(|node| *node.lock().unwrap().data() == to) {
-                event!(Level::TRACE, "Found to Node");
+                event!(Level::TRACE, "Found 'to' Node");
                 
-                let to_node = to_node.lock().unwrap();
-                if to_node.contains_child(&from, Vec::new()) {
+                if to_node.lock().unwrap().contains_child(&from, Vec::new()) {
                     event!(Level::TRACE, "Found cycle");
                     
                     continue;
@@ -59,34 +58,30 @@ impl<T> Graph<T>
 
                 Rc::clone(&to_node)
             } else {
-                event!(Level::TRACE, "No to Node");
+                event!(Level::TRACE, "No 'to' Node");
                 
-                let to_node = Rc::new(Node::new(to));
-                nodes.push(Mutex::new(Rc::clone(&to_node)));
+                let to_node = Rc::new(Mutex::new(Node::new(to)));
+                nodes.push(Rc::clone(&to_node));
                 to_node
             };
 
-            to_node.make_unready();
-            event!(Level::TRACE, "Made to Node unready");
+            to_node.lock().unwrap().make_unready();
+            event!(Level::TRACE, "Made 'to' Node unready");
 
             if let Some(from_node) = nodes.iter().find(|node| *node.lock().unwrap().data() == from) {
-                event!(Level::TRACE, "Found from Node");
+                event!(Level::TRACE, "Found 'from' Node");
 
-                Rc::get_mut(&mut from_node.lock().unwrap()).unwrap().insert_out_neighbour(to_node);
+                from_node.lock().unwrap().insert_out_neighbour(to_node);
             } else {
-                event!(Level::TRACE, "No from Node");
+                event!(Level::TRACE, "No 'from' Node");
 
                 let mut from_node = Node::new(from);
                 from_node.insert_out_neighbour(to_node);
 
-                let from_node = Rc::new(from_node);
-                nodes.push(Mutex::new(Rc::clone(&from_node)));
+                let from_node = Rc::new(Mutex::new(from_node));
+                nodes.push(Rc::clone(&from_node));
             }
         }
-
-        let nodes = nodes.into_iter().map(|node| {
-            node.into_inner().unwrap()
-        }).collect();
 
         Self {
             nodes
@@ -139,19 +134,18 @@ mod tests {
 
         assert_eq!(leaves.len(), 1);
         let leaf = leaves.remove(0);
-        assert_eq!(*leaf.data(), a);
+        assert_eq!(*leaf.lock().unwrap().data(), a);
 
-        leaf.complete();
-        // event!(Level::DEBUG, "Completed");
+        leaf.lock().unwrap().complete();
 
         let mut leaves = graph.find_leaves();
         // event!(Level::DEBUG, leaves =? leaves, "Leaves");
 
         assert_eq!(leaves.len(), 1);
         let leaf = leaves.remove(0);
-        assert_eq!(*leaf.data(), b);
+        assert_eq!(*leaf.lock().unwrap().data(), b);
 
-        leaf.complete();
+        leaf.lock().unwrap().complete();
 
         let leaves = graph.find_leaves();
         assert_eq!(leaves.len(), 0);
@@ -185,27 +179,26 @@ mod tests {
 
         assert_eq!(leaves.len(), 1);
         let leaf = leaves.remove(0);
-        assert_eq!(*leaf.data(), a);
+        assert_eq!(*leaf.lock().unwrap().data(), a);
 
-        leaf.complete();
-        // event!(Level::DEBUG, "Completed");
+        leaf.lock().unwrap().complete();
 
         let mut leaves = graph.find_leaves();
         // event!(Level::DEBUG, leaves =? leaves, "Leaves");
 
         assert_eq!(leaves.len(), 1);
         let leaf = leaves.remove(0);
-        assert_eq!(*leaf.data(), b);
+        assert_eq!(*leaf.lock().unwrap().data(), b);
 
-        leaf.complete();
+        leaf.lock().unwrap().complete();
 
         let mut leaves = graph.find_leaves();
 
         assert_eq!(leaves.len(), 1);
         let leaf = leaves.remove(0);
-        assert_eq!(*leaf.data(), c);
+        assert_eq!(*leaf.lock().unwrap().data(), c);
 
-        leaf.complete();
+        leaf.lock().unwrap().complete();
 
         let leaves = graph.find_leaves();
         assert_eq!(leaves.len(), 0);
@@ -213,10 +206,10 @@ mod tests {
 
     #[test]
     fn complex_scenario() {
-        // init_tracing();
+        init_tracing();
 
-        // let span = span!(Level::DEBUG, "Complex Scenario");
-        // let _enter = span.enter();
+        let span = span!(Level::DEBUG, "Complex Scenario");
+        let _enter = span.enter();
 
         let a = "A";
         let b = "B";
@@ -243,32 +236,31 @@ mod tests {
             Link::new(h, g, priority), 
             Link::new(j, k, priority), 
         ];
-        // span.record("Links", format!("{links:?}"));
+        span.record("Links", format!("{links:?}"));
 
         let graph = Graph::new(links);
-        // event!(Level::DEBUG, nodes =? graph.nodes());
+        event!(Level::DEBUG, nodes =? graph.nodes());
 
         let leaves = graph.find_leaves();
-        // event!(Level::DEBUG, leaves =? leaves, "Leaves");
+        event!(Level::DEBUG, leaves =? leaves, "Leaves");
 
         let mut not_seen = HashSet::new();
         not_seen.extend([
             a.to_string(),
             e.to_string(),
-            j.to_string()
+            j.to_string(),
+            h.to_string(),
         ]);
 
         for leaf in leaves {
-            assert!(not_seen.contains(&leaf.data().to_string()));
-            not_seen.remove(&leaf.data().to_string());  
+            assert!(not_seen.contains(&leaf.lock().unwrap().data().to_string()));
+            not_seen.remove(&leaf.lock().unwrap().data().to_string());  
 
-            leaf.complete();
+            leaf.lock().unwrap().complete();
         }
 
-        // event!(Level::DEBUG, "Completed");
-
         let leaves = graph.find_leaves();
-        // event!(Level::DEBUG, leaves =? leaves, "Leaves");
+        event!(Level::DEBUG, leaves =? leaves, "Leaves");
 
         let mut not_seen = HashSet::new();
         not_seen.extend([
@@ -277,14 +269,14 @@ mod tests {
         ]);
 
         for leaf in leaves {
-            assert!(not_seen.contains(&leaf.data().to_string()));
-            not_seen.remove(&leaf.data().to_string());  
+            assert!(not_seen.contains(&leaf.lock().unwrap().data().to_string()));
+            not_seen.remove(&leaf.lock().unwrap().data().to_string());  
 
-            leaf.complete();
+            leaf.lock().unwrap().complete();
         }
 
         let leaves = graph.find_leaves();
-        // event!(Level::DEBUG, leaves =? leaves, "Leaves");
+        event!(Level::DEBUG, leaves =? leaves, "Leaves");
 
         let mut not_seen = HashSet::new();
         not_seen.extend([
@@ -292,14 +284,14 @@ mod tests {
         ]);
 
         for leaf in leaves {
-            assert!(not_seen.contains(&leaf.data().to_string()));
-            not_seen.remove(&leaf.data().to_string());  
+            assert!(not_seen.contains(&leaf.lock().unwrap().data().to_string()));
+            not_seen.remove(&leaf.lock().unwrap().data().to_string());  
 
-            leaf.complete();
+            leaf.lock().unwrap().complete();
         }
 
         let leaves = graph.find_leaves();
-        // event!(Level::DEBUG, leaves =? leaves, "Leaves");
+        event!(Level::DEBUG, leaves =? leaves, "Leaves");
 
         let mut not_seen = HashSet::new();
         not_seen.extend([
@@ -308,10 +300,40 @@ mod tests {
         ]);
 
         for leaf in leaves {
-            assert!(not_seen.contains(&leaf.data().to_string()));
-            not_seen.remove(&leaf.data().to_string());  
+            assert!(not_seen.contains(&leaf.lock().unwrap().data().to_string()));
+            not_seen.remove(&leaf.lock().unwrap().data().to_string());  
 
-            leaf.complete();
+            leaf.lock().unwrap().complete();
+        }
+
+        let leaves = graph.find_leaves();
+        event!(Level::DEBUG, leaves =? leaves, "Leaves");
+
+        let mut not_seen = HashSet::new();
+        not_seen.extend([
+            g.to_string(),
+        ]);
+
+        for leaf in leaves {
+            assert!(not_seen.contains(&leaf.lock().unwrap().data().to_string()));
+            not_seen.remove(&leaf.lock().unwrap().data().to_string());  
+
+            leaf.lock().unwrap().complete();
+        }
+
+        let leaves = graph.find_leaves();
+        event!(Level::DEBUG, leaves =? leaves, "Leaves");
+
+        let mut not_seen = HashSet::new();
+        not_seen.extend([
+            i.to_string(),
+        ]);
+
+        for leaf in leaves {
+            assert!(not_seen.contains(&leaf.lock().unwrap().data().to_string()));
+            not_seen.remove(&leaf.lock().unwrap().data().to_string());  
+
+            leaf.lock().unwrap().complete();
         }
 
         let leaves = graph.find_leaves();
