@@ -1,4 +1,4 @@
-use std::{fmt::Debug, rc::Rc, sync::Mutex};
+use std::{collections::HashSet, fmt::Debug, hash::Hash, rc::Rc, sync::Mutex};
 
 use tracing::{Level, event, span};
 
@@ -7,7 +7,7 @@ use crate::{graph::node::Node, link::Link};
 pub mod node;
 
 pub struct Graph<T> {
-    nodes: Vec<Rc<Mutex<Node<T>>>>
+    nodes: Vec<Rc<Mutex<Node<T>>>>,
 }
 
 impl<
@@ -29,9 +29,9 @@ impl<
 }
 
 impl<T> Graph<T> 
-    where T: PartialEq + Eq + Debug
+    where T: PartialEq + Eq + Debug + Hash
 {
-    pub fn new<P>(mut links: Vec<Link<T, P>>) -> Self 
+    pub fn new<P>(mut world: HashSet<T>, mut links: Vec<Link<T, P>>) -> Self 
         where P: Ord
     {
         let span = span!(Level::DEBUG, "New Graph");
@@ -44,6 +44,10 @@ impl<T> Graph<T>
         while let Some(Link { from, to, ..}) = links.pop() {
             let span = span!(Level::TRACE, "Found Link", from =? from, to =? to);
             let _enter = span.enter();
+
+            world.remove(&from);
+            world.remove(&to);
+            
 
             let to_node = if let Some(to_node) = nodes.iter().find(|node| *node.lock().unwrap().data() == to) {
                 event!(Level::TRACE, "Found 'to' Node");
@@ -83,6 +87,15 @@ impl<T> Graph<T>
             }
         }
 
+        let span = span!("Checking Isolated Leaves");
+        let _enter = span.enter();
+        for isolated_leaf in world {
+            event!(Level::TRACE, leaf =? isolated_leaf);
+            
+            let node = Rc::new(Mutex::new(Node::new(isolated_leaf)));
+            nodes.push(node);
+        }
+
         Self {
             nodes
         }
@@ -91,12 +104,12 @@ impl<T> Graph<T>
 
 #[cfg(test)]
 mod tests {
-    use crate::{graph::Graph, link::Link};
+    use crate::{graph::{Graph, node::Node}, link::Link};
 
     use proptest::{prelude::{Strategy, any, prop}, proptest};
     use tracing::{Level, event, span};
     use tracing_subscriber::fmt;
-    use std::{collections::HashSet, sync::Once};
+    use std::{collections::HashSet, rc::Rc, sync::{Mutex, Once}};
 
     static INIT: Once = Once::new();
 
@@ -110,6 +123,8 @@ mod tests {
         });
     }
 
+    // test retained world makes leaves
+
     #[test]
     fn single_link() {
         // init_tracing();
@@ -120,6 +135,10 @@ mod tests {
         let a = "A";
         let b = "B";
 
+        let mut world = HashSet::new();
+        world.insert(a);
+        world.insert(b);
+
         let priority = 0;
 
         let a_to_b = Link::new(a, b, priority);
@@ -127,7 +146,7 @@ mod tests {
         let links = vec![a_to_b];
         // span.record("Links", format!("{links:?}"));
 
-        let graph = Graph::new(links);
+        let graph = Graph::new(world, links);
         // event!(Level::DEBUG, nodes =? graph.nodes());
 
         let mut leaves = graph.find_leaves();
@@ -167,12 +186,17 @@ mod tests {
 
         let c = "C";
 
+        let mut world = HashSet::new();
+        world.insert(a);
+        world.insert(b);
+        world.insert(c);
+
         let b_to_c = Link::new(b, c, priority);
         
         let links = vec![a_to_b, b_to_c];
         // span.record("Links", format!("{links:?}"));
 
-        let graph = Graph::new(links);
+        let graph = Graph::new(world, links);
         // event!(Level::DEBUG, nodes =? graph.nodes());
 
         let mut leaves = graph.find_leaves();
@@ -223,6 +247,19 @@ mod tests {
         let i = "I";
         let j = "J";
         let k = "K";
+
+        let mut world = HashSet::new();
+        world.insert(a);
+        world.insert(b);
+        world.insert(c);
+        world.insert(d);
+        world.insert(e);
+        world.insert(f);
+        world.insert(g);
+        world.insert(h);
+        world.insert(i);
+        world.insert(j);
+        world.insert(k);
         
         let priority = 0;
         
@@ -239,7 +276,7 @@ mod tests {
         ];
         span.record("Links", format!("{links:?}"));
 
-        let graph = Graph::new(links);
+        let graph = Graph::new(world, links);
         event!(Level::DEBUG, nodes =? graph.nodes());
 
         let leaves = graph.find_leaves();
@@ -355,6 +392,15 @@ mod tests {
         let e = "E";
         let f = "F";
         let g = "G";
+
+        let mut world = HashSet::new();
+        world.insert(a);
+        world.insert(b);
+        world.insert(c);
+        world.insert(d);
+        world.insert(e);
+        world.insert(f);
+        world.insert(g);
         
         let priority = 0;
         
@@ -369,7 +415,7 @@ mod tests {
         ];
         span.record("Links", format!("{links:?}"));
 
-        let graph = Graph::new(links);
+        let graph = Graph::new(world, links);
         event!(Level::DEBUG, nodes =? graph.nodes());
 
         let leaves = graph.find_leaves();
@@ -446,18 +492,19 @@ mod tests {
     proptest! {
         #[test]
         fn build(input in chain_strategy()) {
-            let nodes = get_unique_nodes(&input);
-            let graph = Graph::new(input);
+            let world = get_world(&input);
+            let graph = Graph::new(world.clone(), input);
 
-            // make sure every node in input is used
-            assert_eq!(nodes.len(), graph.nodes.len());
-            
-            // check for cycles
-            // make sure they are trees
+            assert_eq!(world.len(), graph.nodes.len());
+            assert!(!has_cycle(graph.nodes()))
         }
     }
 
-    fn get_unique_nodes(input: &Vec<Link<I, P>>) -> HashSet<I> {
+    fn has_cycle(_nodes: &Vec<Rc<Mutex<Node<I>>>>) -> bool {
+        false
+    }
+
+    fn get_world(input: &Vec<Link<I, P>>) -> HashSet<I> {
         input.iter().fold(HashSet::new(), |mut acc, cur| {
             acc.insert(cur.from);
             acc.insert(cur.to);

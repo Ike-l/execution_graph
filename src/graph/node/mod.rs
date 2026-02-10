@@ -10,31 +10,31 @@ pub struct Node<T> {
     data: T,
 
     // Self or index to container
-    out_neighbours: Vec<Rc<Mutex<Self>>>,
+    out_neighbourhood: Vec<Rc<Mutex<Self>>>,
 }
 
 impl<T: Debug> Debug for Node<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f, 
-            "{:?}, ready: {:?}, completed: {:?}, neighbours: {:?}", 
+            "{:?}, ready: {:?}, completed: {:?}, neighbourhood degree: {:?}", 
                 self.data, 
                 self.ready, 
                 self.completed, 
-                self.out_neighbours.len()
+                self.out_neighbourhood.len()
         )
     }
 }
 
 impl<
-    T: Debug
+    T
 > Node<T> {
     pub fn new(data: T) -> Self {
         Self {
             ready: AtomicUsize::new(0),
             completed: AtomicBool::new(false),
             data,
-            out_neighbours: Vec::new()
+            out_neighbourhood: Vec::new()
         }
     }
 
@@ -43,7 +43,7 @@ impl<
     }
 
     pub fn insert_out_neighbour(&mut self, neighbour: Rc<Mutex<Self>>) {
-        self.out_neighbours.push(neighbour);
+        self.out_neighbourhood.push(neighbour);
     }
 
     pub fn make_unready(&self) {
@@ -62,7 +62,7 @@ impl<
         let result = self.completed.compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed);
         assert!(result.is_ok());
 
-        for neighbour in self.out_neighbours.iter() {
+        for neighbour in self.out_neighbourhood.iter() {
             neighbour.lock().unwrap().make_ready();
         }
     }
@@ -85,7 +85,7 @@ impl<
         }
 
         seen.push(&self.data);
-        self.out_neighbours.iter().any(|neighbour| {
+        self.out_neighbourhood.iter().any(|neighbour| {
             // Assuming the guard is held by the current function, this would indicate a cycle
             let Ok(neighbour) = neighbour.try_lock() else { 
                 event!(Level::TRACE, "Failed to get guard");
