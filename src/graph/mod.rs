@@ -87,7 +87,7 @@ impl<T> Graph<T>
             }
         }
 
-        let span = span!("Checking Isolated Leaves");
+        let span = span!(Level::TRACE, "Checking Isolated Leaves");
         let _enter = span.enter();
         for isolated_leaf in world {
             event!(Level::TRACE, leaf =? isolated_leaf);
