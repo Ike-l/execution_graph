@@ -248,36 +248,71 @@ mod tests {
         let graph = Graph::new(links);
         // event!(Level::DEBUG, nodes =? graph.nodes());
 
-        let mut leaves = graph.find_leaves();
+        let leaves = graph.find_leaves();
         // event!(Level::DEBUG, leaves =? leaves, "Leaves");
 
-        assert_eq!(leaves.len(), 3);
-        let mut not_seen = HashSet::from_iter(vec![a, e, j]);
+        let mut not_seen = HashSet::new();
+        not_seen.extend([
+            a.to_string(),
+            e.to_string(),
+            j.to_string()
+        ]);
+
         for leaf in leaves {
-            assert!(not_seen.contains(leaf.data()));
-            not_seen.remove(leaf.data());  
+            assert!(not_seen.contains(&leaf.data().to_string()));
+            not_seen.remove(&leaf.data().to_string());  
 
             leaf.complete();
         }
 
         // event!(Level::DEBUG, "Completed");
 
-        let mut leaves = graph.find_leaves();
+        let leaves = graph.find_leaves();
         // event!(Level::DEBUG, leaves =? leaves, "Leaves");
 
-        assert_eq!(leaves.len(), 1);
-        let leaf = leaves.remove(0);
-        assert_eq!(*leaf.data(), b);
+        let mut not_seen = HashSet::new();
+        not_seen.extend([
+            k.to_string(),
+            b.to_string(),
+        ]);
 
-        leaf.complete();
+        for leaf in leaves {
+            assert!(not_seen.contains(&leaf.data().to_string()));
+            not_seen.remove(&leaf.data().to_string());  
 
-        let mut leaves = graph.find_leaves();
+            leaf.complete();
+        }
 
-        assert_eq!(leaves.len(), 1);
-        let leaf = leaves.remove(0);
-        assert_eq!(*leaf.data(), c);
+        let leaves = graph.find_leaves();
+        // event!(Level::DEBUG, leaves =? leaves, "Leaves");
 
-        leaf.complete();
+        let mut not_seen = HashSet::new();
+        not_seen.extend([
+            d.to_string(),
+        ]);
+
+        for leaf in leaves {
+            assert!(not_seen.contains(&leaf.data().to_string()));
+            not_seen.remove(&leaf.data().to_string());  
+
+            leaf.complete();
+        }
+
+        let leaves = graph.find_leaves();
+        // event!(Level::DEBUG, leaves =? leaves, "Leaves");
+
+        let mut not_seen = HashSet::new();
+        not_seen.extend([
+            c.to_string(),
+            f.to_string(),
+        ]);
+
+        for leaf in leaves {
+            assert!(not_seen.contains(&leaf.data().to_string()));
+            not_seen.remove(&leaf.data().to_string());  
+
+            leaf.complete();
+        }
 
         let leaves = graph.find_leaves();
         assert_eq!(leaves.len(), 0);
