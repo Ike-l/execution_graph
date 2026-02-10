@@ -93,6 +93,7 @@ impl<T> Graph<T>
 mod tests {
     use crate::{graph::Graph, link::Link};
 
+    use proptest::{prelude::{Strategy, any, prop}, proptest};
     use tracing::{Level, event, span};
     use tracing_subscriber::fmt;
     use std::{collections::HashSet, sync::Once};
@@ -424,5 +425,43 @@ mod tests {
 
         let leaves = graph.find_leaves();
         assert_eq!(leaves.len(), 0);
+    }
+
+    type I = u16;
+    type P = u64;
+
+    const SIZE: usize = 10000;
+
+    fn chain_strategy() -> impl Strategy<Value = Vec<Link<I, P>>> {
+        prop::collection::vec(
+            (
+                any::<I>(), 
+                any::<I>(), 
+                any::<P>()
+            ).prop_map(|(from, to, priority)| Link::new(from, to, priority)),
+            SIZE
+        )
+    }
+
+    proptest! {
+        #[test]
+        fn build(input in chain_strategy()) {
+            let nodes = get_unique_nodes(&input);
+            let graph = Graph::new(input);
+
+            // make sure every node in input is used
+            assert_eq!(nodes.len(), graph.nodes.len());
+            
+            // check for cycles
+            // make sure they are trees
+        }
+    }
+
+    fn get_unique_nodes(input: &Vec<Link<I, P>>) -> HashSet<I> {
+        input.iter().fold(HashSet::new(), |mut acc, cur| {
+            acc.insert(cur.from);
+            acc.insert(cur.to);
+            acc
+        })
     }
 }
