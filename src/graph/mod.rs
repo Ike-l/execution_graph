@@ -8,6 +8,18 @@ pub struct Graph<T> {
     nodes: Vec<Rc<Node<T>>>
 }
 
+impl<T> Graph<T> {
+    pub fn find_leaves(&self) -> impl Iterator<Item = Rc<Node<T>>> {
+        self.nodes.iter().filter_map(|node| {
+            if node.ready.load(Ordering::Acquire) == 0 {
+                Some(Rc::clone(node))
+            } else {
+                None
+            }
+        })
+    }
+}
+
 impl<T> Graph<T> 
     where T: PartialEq + Eq
 {
@@ -49,5 +61,34 @@ impl<T> Graph<T>
         Self {
             nodes
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{graph::Graph, link::Link};
+
+    #[test]
+    fn single_node() {
+        let a = "A";
+        let b = "B";
+
+        let priority = 0;
+
+        let a_to_b = Link::new(a, b, priority);
+
+        let links = vec![a_to_b];
+        let graph = Graph::new(links);
+
+        let leaves = graph.find_leaves();
+
+        let a_leaf = leaves.next().unwrap();
+        assert_eq!(a_leaf.data, a);
+
+        a_leaf.ou
+        
+        assert!(leaves.next().is_none());
+
+
     }
 }

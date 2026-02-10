@@ -1,13 +1,13 @@
-use std::{rc::Rc, sync::atomic::AtomicUsize};
+use std::{rc::Rc, sync::atomic::{AtomicUsize, Ordering}};
 
 pub struct Node<T> {
     // ready when 0
-    pub ready: AtomicUsize,
+    ready: AtomicUsize,
 
     pub data: T,
 
     // Self or index to container
-    pub out_neighbours: Vec<Rc<Self>>,
+    out_neighbours: Vec<Rc<Self>>,
 }
 
 impl<T> Node<T> {
@@ -16,6 +16,20 @@ impl<T> Node<T> {
             ready: AtomicUsize::new(0),
             data,
             out_neighbours: Vec::new()
+        }
+    }
+
+    pub fn make_unready(&self) {
+        self.ready.fetch_add(1, Ordering::SeqCst);
+    }
+
+    pub fn make_ready(&self) {
+        self.ready.fetch_sub(1, Ordering::SeqCst);
+    }
+
+    pub fn complete(&self) {
+        for neighbour in self.out_neighbours.iter() {
+            neighbour.make_ready();
         }
     }
 }
