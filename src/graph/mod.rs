@@ -32,13 +32,13 @@ impl<
 impl<T> Graph<T> 
     where T: Debug + PartialEq + Eq + Hash + Clone
 {
-    /// Automatically chooses the best implementation based on world size & benchmarking
+    /// Automatically chooses the best implementation based on input size & benchmarking
     /// 
     /// assumes Links are sorted with priority at the end
     /// 
     /// assumes links is a subset of world
     pub fn new(world: HashSet<T>, links: Vec<Link<T>>) -> Self {
-        if world.len() < 64 {
+        if links.len() < 64 {
             Self::new_3(world, links)
         } else {
             Self::new_2(world, links)

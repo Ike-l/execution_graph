@@ -21,8 +21,8 @@ const fn world_size_builder() -> [usize; RESOLUTION] {
 pub fn build_sparse_graph(c: &mut Criterion) {
     let mut group = c.benchmark_group("Execution Graph Benchmark");
     group
-        .sampling_mode(criterion::SamplingMode::Auto)
-        .sample_size(SAMPLE_SIZE);
+        .sampling_mode(criterion::SamplingMode::Auto);
+        // .sample_size(SAMPLE_SIZE);
 
 
     for world_size in WORLD_SIZES {
