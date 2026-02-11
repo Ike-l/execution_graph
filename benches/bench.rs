@@ -67,7 +67,7 @@ pub fn build_dense_graph(c: &mut Criterion) {
         let links: Vec<Link<T>> = generate_chain(&world, world_size / DENSE_SIZE);
 
         group.bench_with_input(
-            BenchmarkId::new(format!("Build Sparse"), format!("World Size: {world_size}")), 
+            BenchmarkId::new(format!("Build Dense"), format!("World Size: {world_size}")), 
             &(world, links),
             |bencher, (world, links)| {
                 bencher.iter(|| Graph::new(world.clone(), links.clone()));
