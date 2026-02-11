@@ -1,15 +1,17 @@
-use std::{fmt::Debug, sync::atomic::{AtomicBool, AtomicUsize, Ordering}};
+use std::{fmt::Debug, sync::{Arc, atomic::{AtomicUsize, Ordering}}};
 
+use parking_lot::RwLock;
 use tracing::{Level, event, span};
 
-use crate::prelude::sync::{RwLock, Arc};
+use crate::prelude::Status;
+
+pub mod status;
 
 pub struct Node<T> {
     // ready when 0
     ready: AtomicUsize,
 
-    // status
-    completed: AtomicBool,
+    status: Status,
 
     data: T,
 
@@ -21,22 +23,22 @@ impl<T: Debug> Debug for Node<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f, 
-            "{:?}, ready: {:?}, completed: {:?}, neighbourhood degree: {:?}", 
+            "{:?}, ready: {:?}, status: {:?}, neighbourhood degree: {:?}", 
                 self.data, 
                 self.ready, 
-                self.completed, 
+                self.status, 
                 self.out_neighbourhood.len()
         )
     }
 }
 
 impl<
-    T
+    T: Debug
 > Node<T> {
     pub fn new(data: T) -> Self {
         Self {
             ready: AtomicUsize::new(0),
-            completed: AtomicBool::new(false),
+            status: Status::Ready,
             data,
             out_neighbourhood: Vec::new()
         }
@@ -59,15 +61,19 @@ impl<
     }
 
     pub fn is_ready(&self) -> bool {
-        self.ready.load(Ordering::Acquire) == 0 && !self.completed.load(Ordering::Acquire)
+        self.ready.load(Ordering::Acquire) == 0 && 
+        matches!(self.status, Status::Ready)
     }
 
-    pub fn complete(&self) {
-        let result = self.completed.compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed);
-        assert!(result.is_ok());
+    pub fn complete(&mut self) {
+        
 
+        let span = span!(Level::TRACE, "Notifying Neighbours");
+        let _enter = span.enter();
         for neighbour in self.out_neighbourhood.iter() {
-            neighbour.read().unwrap().make_ready();
+            event!(Level::TRACE, neighbour =? neighbour.read().data());
+
+            neighbour.read().make_ready();
         }
     }
 }
@@ -91,7 +97,7 @@ impl<
         seen.push(&self.data);
         self.out_neighbourhood.iter().any(|neighbour| {
             // Assuming the guard is held by the current function, this would indicate a cycle
-            let Ok(neighbour) = neighbour.try_read() else { 
+            let Some(neighbour) = neighbour.try_read() else { 
                 event!(Level::TRACE, "Failed to get guard");
                 return false 
             };

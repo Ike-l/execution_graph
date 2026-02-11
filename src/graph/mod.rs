@@ -1,8 +1,9 @@
-use std::{collections::HashSet, fmt::Debug, hash::Hash};
+use std::{collections::HashSet, fmt::Debug, hash::Hash, sync::Arc};
 
+use parking_lot::RwLock;
 use tracing::{Level, event, span};
 
-use crate::prelude::{sync::{Arc, RwLock}, Node, Link};
+use crate::prelude::{Node, Link};
 
 pub mod node;
 
@@ -15,7 +16,7 @@ impl<
 > Graph<T> {
     pub fn find_leaves(&self) -> Vec<Arc<RwLock<Node<T>>>> {
         self.nodes.iter().filter_map(|node| {
-            if node.read().unwrap().is_ready() {
+            if node.read().is_ready() {
                 Some(Arc::clone(node))
             } else {
                 None
@@ -31,14 +32,10 @@ impl<
 impl<T> Graph<T> 
     where T: PartialEq + Eq + Debug + Hash
 {
-    pub fn new<P>(mut world: HashSet<T>, mut links: Vec<Link<T, P>>) -> Self 
-        where P: Ord
-    {
+    /// assumes Links are sorted with priority at the end
+    pub fn new(mut world: HashSet<T>, mut links: Vec<Link<T>>) -> Self {
         let span = span!(Level::DEBUG, "New Graph");
         let _enter = span.enter();
-
-        links.sort();
-        event!(Level::TRACE, "Sorted links");
 
         let mut nodes: Vec<Arc<RwLock<Node<T>>>> = Vec::with_capacity(links.len());
         while let Some(Link { from, to, ..}) = links.pop() {
@@ -54,12 +51,11 @@ impl<T> Graph<T>
                 .find(|node| 
                     *node
                         .read()
-                        .unwrap()
                         .data() == to
                 ) {
                 event!(Level::TRACE, "Found 'to' Node");
                 
-                if to_node.read().unwrap().contains_child(&from, Vec::new()) {
+                if to_node.read().contains_child(&from, Vec::new()) {
                     event!(Level::TRACE, "Found cycle");
                     
                     continue;
@@ -76,7 +72,7 @@ impl<T> Graph<T>
                 to_node
             };
 
-            to_node.write().unwrap().make_unready();
+            to_node.write().make_unready();
             event!(Level::TRACE, "Made 'to' Node unready");
 
             if let Some(from_node) = nodes
@@ -84,12 +80,11 @@ impl<T> Graph<T>
                 .find(|node| 
                     *node
                         .read()
-                        .unwrap()
                         .data() == from
                 ) {
                 event!(Level::TRACE, "Found 'from' Node");
 
-                from_node.write().unwrap().insert_out_neighbour(to_node);
+                from_node.write().insert_out_neighbour(to_node);
             } else {
                 event!(Level::TRACE, "No 'from' Node");
 
@@ -119,12 +114,11 @@ impl<T> Graph<T>
 #[cfg(test)]
 mod tests {
     use crate::prelude::*;
-    use sync::{Arc, RwLock};
 
+    use parking_lot::RwLock;
     use proptest::{prelude::{Strategy, any, prop}, proptest};
-    use tracing::{Level, event, span};
     use tracing_subscriber::fmt;
-    use std::{collections::HashSet, sync::Once};
+    use std::{collections::HashSet, sync::{Arc, Once}};
 
     static INIT: Once = Once::new();
 
@@ -142,11 +136,6 @@ mod tests {
 
     #[test]
     fn single_link() {
-        // init_tracing();
-
-        // let span = span!(Level::DEBUG, "Single Link");
-        // let _enter = span.enter();
-
         let a = "A";
         let b = "B";
 
@@ -154,33 +143,27 @@ mod tests {
         world.insert(a);
         world.insert(b);
 
-        let priority = 0;
-
-        let a_to_b = Link::new(a, b, priority);
+        let a_to_b = Link::new(a, b);
         
         let links = vec![a_to_b];
-        // span.record("Links", format!("{links:?}"));
 
         let graph = Graph::new(world, links);
-        // event!(Level::DEBUG, nodes =? graph.nodes());
-
+        
         let mut leaves = graph.find_leaves();
-        // event!(Level::DEBUG, leaves =? leaves, "Leaves");
 
         assert_eq!(leaves.len(), 1);
         let leaf = leaves.remove(0);
-        assert_eq!(*leaf.read().unwrap().data(), a);
+        assert_eq!(*leaf.read().data(), a);
 
-        leaf.read().unwrap().complete();
+        leaf.write().complete();
 
         let mut leaves = graph.find_leaves();
-        // event!(Level::DEBUG, leaves =? leaves, "Leaves");
 
         assert_eq!(leaves.len(), 1);
         let leaf = leaves.remove(0);
-        assert_eq!(*leaf.read().unwrap().data(), b);
+        assert_eq!(*leaf.read().data(), b);
 
-        leaf.read().unwrap().complete();
+        leaf.write().complete();
 
         let leaves = graph.find_leaves();
         assert_eq!(leaves.len(), 0);
@@ -188,57 +171,45 @@ mod tests {
 
     #[test]
     fn double_link() {
-        // init_tracing();
-
-        // let span = span!(Level::DEBUG, "Single Link");
-        // let _enter = span.enter();
-
         let a = "A";
         let b = "B";
-        
-        let priority = 0;
-        let a_to_b = Link::new(a, b, priority);
-
         let c = "C";
+        
+        let a_to_b = Link::new(a, b);
+        let b_to_c = Link::new(b, c);
 
         let mut world = HashSet::new();
         world.insert(a);
         world.insert(b);
         world.insert(c);
 
-        let b_to_c = Link::new(b, c, priority);
-        
         let links = vec![a_to_b, b_to_c];
-        // span.record("Links", format!("{links:?}"));
 
         let graph = Graph::new(world, links);
-        // event!(Level::DEBUG, nodes =? graph.nodes());
-
-        let mut leaves = graph.find_leaves();
-        // event!(Level::DEBUG, leaves =? leaves, "Leaves");
-
-        assert_eq!(leaves.len(), 1);
-        let leaf = leaves.remove(0);
-        assert_eq!(*leaf.read().unwrap().data(), a);
-
-        leaf.read().unwrap().complete();
-
-        let mut leaves = graph.find_leaves();
-        // event!(Level::DEBUG, leaves =? leaves, "Leaves");
-
-        assert_eq!(leaves.len(), 1);
-        let leaf = leaves.remove(0);
-        assert_eq!(*leaf.read().unwrap().data(), b);
-
-        leaf.read().unwrap().complete();
 
         let mut leaves = graph.find_leaves();
 
         assert_eq!(leaves.len(), 1);
         let leaf = leaves.remove(0);
-        assert_eq!(*leaf.read().unwrap().data(), c);
+        assert_eq!(*leaf.read().data(), a);
 
-        leaf.read().unwrap().complete();
+        leaf.write().complete();
+
+        let mut leaves = graph.find_leaves();
+
+        assert_eq!(leaves.len(), 1);
+        let leaf = leaves.remove(0);
+        assert_eq!(*leaf.read().data(), b);
+
+        leaf.write().complete();
+
+        let mut leaves = graph.find_leaves();
+
+        assert_eq!(leaves.len(), 1);
+        let leaf = leaves.remove(0);
+        assert_eq!(*leaf.read().data(), c);
+
+        leaf.write().complete();
 
         let leaves = graph.find_leaves();
         assert_eq!(leaves.len(), 0);
@@ -247,9 +218,6 @@ mod tests {
     #[test]
     fn complex_scenario() {
         init_tracing();
-
-        let span = span!(Level::DEBUG, "Complex Scenario");
-        let _enter = span.enter();
 
         let a = "A";
         let b = "B";
@@ -276,26 +244,21 @@ mod tests {
         world.insert(j);
         world.insert(k);
         
-        let priority = 0;
-        
         let links = vec![
-            Link::new(a, b, priority), 
-            Link::new(b, d, priority), 
-            Link::new(d, c, priority), 
-            Link::new(d, f, priority), 
-            Link::new(e, d, priority), 
-            Link::new(f, g, priority), 
-            Link::new(g, i, priority), 
-            Link::new(h, g, priority), 
-            Link::new(j, k, priority), 
+            Link::new(a, b), 
+            Link::new(b, d), 
+            Link::new(d, c), 
+            Link::new(d, f), 
+            Link::new(e, d), 
+            Link::new(f, g), 
+            Link::new(g, i), 
+            Link::new(h, g), 
+            Link::new(j, k), 
         ];
-        span.record("Links", format!("{links:?}"));
 
         let graph = Graph::new(world, links);
-        event!(Level::DEBUG, nodes =? graph.nodes());
 
         let leaves = graph.find_leaves();
-        event!(Level::DEBUG, leaves =? leaves, "Leaves");
 
         let mut not_seen = HashSet::new();
         not_seen.extend([
@@ -306,14 +269,13 @@ mod tests {
         ]);
 
         for leaf in leaves {
-            assert!(not_seen.contains(&leaf.read().unwrap().data().to_string()));
-            not_seen.remove(&leaf.read().unwrap().data().to_string());  
+            assert!(not_seen.contains(&leaf.read().data().to_string()));
+            not_seen.remove(&leaf.read().data().to_string());  
 
-            leaf.read().unwrap().complete();
+            leaf.write().complete();
         }
 
         let leaves = graph.find_leaves();
-        event!(Level::DEBUG, leaves =? leaves, "Leaves");
 
         let mut not_seen = HashSet::new();
         not_seen.extend([
@@ -322,14 +284,13 @@ mod tests {
         ]);
 
         for leaf in leaves {
-            assert!(not_seen.contains(&leaf.read().unwrap().data().to_string()));
-            not_seen.remove(&leaf.read().unwrap().data().to_string());  
+            assert!(not_seen.contains(&leaf.read().data().to_string()));
+            not_seen.remove(&leaf.read().data().to_string());  
 
-            leaf.read().unwrap().complete();
+            leaf.write().complete();
         }
 
         let leaves = graph.find_leaves();
-        event!(Level::DEBUG, leaves =? leaves, "Leaves");
 
         let mut not_seen = HashSet::new();
         not_seen.extend([
@@ -337,14 +298,13 @@ mod tests {
         ]);
 
         for leaf in leaves {
-            assert!(not_seen.contains(&leaf.read().unwrap().data().to_string()));
-            not_seen.remove(&leaf.read().unwrap().data().to_string());  
+            assert!(not_seen.contains(&leaf.read().data().to_string()));
+            not_seen.remove(&leaf.read().data().to_string());  
 
-            leaf.read().unwrap().complete();
+            leaf.write().complete();
         }
 
         let leaves = graph.find_leaves();
-        event!(Level::DEBUG, leaves =? leaves, "Leaves");
 
         let mut not_seen = HashSet::new();
         not_seen.extend([
@@ -353,14 +313,13 @@ mod tests {
         ]);
 
         for leaf in leaves {
-            assert!(not_seen.contains(&leaf.read().unwrap().data().to_string()));
-            not_seen.remove(&leaf.read().unwrap().data().to_string());  
+            assert!(not_seen.contains(&leaf.read().data().to_string()));
+            not_seen.remove(&leaf.read().data().to_string());  
 
-            leaf.read().unwrap().complete();
+            leaf.write().complete();
         }
 
         let leaves = graph.find_leaves();
-        event!(Level::DEBUG, leaves =? leaves, "Leaves");
 
         let mut not_seen = HashSet::new();
         not_seen.extend([
@@ -368,14 +327,13 @@ mod tests {
         ]);
 
         for leaf in leaves {
-            assert!(not_seen.contains(&leaf.read().unwrap().data().to_string()));
-            not_seen.remove(&leaf.read().unwrap().data().to_string());  
+            assert!(not_seen.contains(&leaf.read().data().to_string()));
+            not_seen.remove(&leaf.read().data().to_string());  
 
-            leaf.read().unwrap().complete();
+            leaf.write().complete();
         }
 
         let leaves = graph.find_leaves();
-        event!(Level::DEBUG, leaves =? leaves, "Leaves");
 
         let mut not_seen = HashSet::new();
         not_seen.extend([
@@ -383,10 +341,10 @@ mod tests {
         ]);
 
         for leaf in leaves {
-            assert!(not_seen.contains(&leaf.read().unwrap().data().to_string()));
-            not_seen.remove(&leaf.read().unwrap().data().to_string());  
+            assert!(not_seen.contains(&leaf.read().data().to_string()));
+            not_seen.remove(&leaf.read().data().to_string());  
 
-            leaf.read().unwrap().complete();
+            leaf.write().complete();
         }
 
         let leaves = graph.find_leaves();
@@ -395,11 +353,6 @@ mod tests {
 
     #[test]
     fn complex_cycle() {
-        init_tracing();
-
-        let span = span!(Level::DEBUG, "Complex Cycle");
-        let _enter = span.enter();
-
         let a = "A";
         let b = "B";
         let c = "C";
@@ -417,24 +370,21 @@ mod tests {
         world.insert(f);
         world.insert(g);
         
-        let priority = 0;
-        
         let links = vec![
-            Link::new(a, b, priority), 
-            Link::new(b, c, priority), 
-            Link::new(c, d, priority), 
-            Link::new(c, e, priority + 1), 
-            Link::new(e, b, priority + 2), 
-            Link::new(e, f, priority), 
-            Link::new(g, e, priority), 
+            Link::new(a, b), 
+            Link::new(b, c), 
+            Link::new(c, d), 
+            Link::new(e, f), 
+            Link::new(c, e),
+
+            Link::new(g, e), 
+
+            Link::new(e, b), 
         ];
-        span.record("Links", format!("{links:?}"));
 
         let graph = Graph::new(world, links);
-        event!(Level::DEBUG, nodes =? graph.nodes());
 
         let leaves = graph.find_leaves();
-        event!(Level::DEBUG, leaves =? leaves, "Leaves");
 
         let mut not_seen = HashSet::new();
         not_seen.extend([
@@ -444,16 +394,13 @@ mod tests {
         ]);
 
         for leaf in leaves {
-            let span = span!(Level::DEBUG, "Leaf", data =? leaf.read().unwrap().data());
-            let _enter = span.enter();
-            assert!(not_seen.contains(&leaf.read().unwrap().data().to_string()));
-            not_seen.remove(&leaf.read().unwrap().data().to_string());  
+            assert!(not_seen.contains(&leaf.read().data().to_string()));
+            not_seen.remove(&leaf.read().data().to_string());  
 
-            leaf.read().unwrap().complete();
+            leaf.write().complete();
         }
 
         let leaves = graph.find_leaves();
-        event!(Level::DEBUG, leaves =? leaves, "Leaves");
 
         let mut not_seen = HashSet::new();
         not_seen.extend([
@@ -462,14 +409,13 @@ mod tests {
         ]);
 
         for leaf in leaves {
-            assert!(not_seen.contains(&leaf.read().unwrap().data().to_string()));
-            not_seen.remove(&leaf.read().unwrap().data().to_string());  
+            assert!(not_seen.contains(&leaf.read().data().to_string()));
+            not_seen.remove(&leaf.read().data().to_string());  
 
-            leaf.read().unwrap().complete();
+            leaf.write().complete();
         }
 
         let leaves = graph.find_leaves();
-        event!(Level::DEBUG, leaves =? leaves, "Leaves");
 
         let mut not_seen = HashSet::new();
         not_seen.extend([
@@ -478,10 +424,10 @@ mod tests {
         ]);
 
         for leaf in leaves {
-            assert!(not_seen.contains(&leaf.read().unwrap().data().to_string()));
-            not_seen.remove(&leaf.read().unwrap().data().to_string());  
+            assert!(not_seen.contains(&leaf.read().data().to_string()));
+            not_seen.remove(&leaf.read().data().to_string());  
 
-            leaf.read().unwrap().complete();
+            leaf.write().complete();
         }
 
         let leaves = graph.find_leaves();
@@ -489,17 +435,15 @@ mod tests {
     }
 
     type I = u16;
-    type P = u64;
 
     const SIZE: usize = 10000;
 
-    fn chain_strategy() -> impl Strategy<Value = Vec<Link<I, P>>> {
+    fn chain_strategy() -> impl Strategy<Value = Vec<Link<I>>> {
         prop::collection::vec(
             (
                 any::<I>(), 
                 any::<I>(), 
-                any::<P>()
-            ).prop_map(|(from, to, priority)| Link::new(from, to, priority)),
+            ).prop_map(|(from, to)| Link::new(from, to)),
             SIZE
         )
     }
@@ -519,7 +463,7 @@ mod tests {
         false
     }
 
-    fn get_world(input: &Vec<Link<I, P>>) -> HashSet<I> {
+    fn get_world(input: &Vec<Link<I>>) -> HashSet<I> {
         input.iter().fold(HashSet::new(), |mut acc, cur| {
             acc.insert(cur.from);
             acc.insert(cur.to);

@@ -10,7 +10,9 @@ path = "benches/bench.rs"
 harness = false
 
 [dependencies]
+parking_lot = "0.12.5"
 tracing = "0.1.44"
+
 
 [dev-dependencies]
 criterion = { version = "0.8.1", features = ["html_reports"] }
