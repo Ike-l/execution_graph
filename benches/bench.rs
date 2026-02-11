@@ -9,8 +9,8 @@ const SAMPLE_SIZE: usize = 10;
 const RESOLUTION: usize = 10;
 
 const WORLD_SIZES: [usize; RESOLUTION] = world_size_builder();
-const SPARSE_SIZE: usize = 10;
-const DENSE_SIZE: usize = 2;
+const SPARSE_SIZE: usize = 4; // halves connections into 2 (links have 2 nodes) - 1 in every 2 nodes has a link
+const DENSE_SIZE: usize = 1; // doubles connections into 2 (links have 2 nodes) - 1 in every 2 nodes has a link
 
 const fn world_size_builder() -> [usize; RESOLUTION] {
     [
@@ -64,7 +64,7 @@ pub fn build_dense_graph(c: &mut Criterion) {
 
     for world_size in WORLD_SIZES {
         let world: HashSet<T> = generate_world(world_size);
-        let links: Vec<Link<T>> = generate_chain(&world, world_size / DENSE_SIZE);
+        let links: Vec<Link<T>> = generate_chain(&world, world_size * DENSE_SIZE);
 
         group.bench_with_input(
             BenchmarkId::new(format!("Build Dense"), format!("World Size: {world_size}")), 

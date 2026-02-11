@@ -37,6 +37,7 @@ impl<T> Graph<T>
         let span = span!(Level::INFO, "New Graph");
         let _enter = span.enter();
 
+        // HashMap<T: Node<T>>
         let mut nodes: Vec<Arc<RwLock<Node<T>>>> = Vec::with_capacity(links.len());
         while let Some(Link { from, to, ..}) = links.pop() {
             let span = span!(Level::DEBUG, "Found Link", from =? from, to =? to);
