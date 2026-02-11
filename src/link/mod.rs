@@ -1,5 +1,5 @@
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Link<Identifier> {
     pub from: Identifier,
     pub to: Identifier,

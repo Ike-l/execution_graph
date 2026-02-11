@@ -445,8 +445,8 @@ mod tests {
 
     type I = u8;
 
-    const CHAIN_SIZE: usize = 3000;
-    const WORLD_SIZE: usize = 1000;
+    const CHAIN_SIZE: usize = 2000;
+    const WORLD_SIZE: usize = 10000;
 
     fn chain_strategy(world: HashSet<I>) -> impl Strategy<Value = Vec<Link<I>>> {
         let world = world.into_iter().collect::<Vec<_>>();
