@@ -1,16 +1,20 @@
-use std::{fmt::Debug, rc::Rc, sync::{Mutex, atomic::{AtomicBool, AtomicUsize, Ordering}}};
+use std::{fmt::Debug, sync::atomic::{AtomicBool, AtomicUsize, Ordering}};
 
 use tracing::{Level, event, span};
+
+use crate::prelude::sync::{RwLock, Arc};
 
 pub struct Node<T> {
     // ready when 0
     ready: AtomicUsize,
+
+    // status
     completed: AtomicBool,
 
     data: T,
 
     // Self or index to container
-    out_neighbourhood: Vec<Rc<Mutex<Self>>>,
+    out_neighbourhood: Vec<Arc<RwLock<Self>>>,
 }
 
 impl<T: Debug> Debug for Node<T> {
@@ -42,7 +46,7 @@ impl<
         &self.data
     }
 
-    pub fn insert_out_neighbour(&mut self, neighbour: Rc<Mutex<Self>>) {
+    pub fn insert_out_neighbour(&mut self, neighbour: Arc<RwLock<Self>>) {
         self.out_neighbourhood.push(neighbour);
     }
 
@@ -63,7 +67,7 @@ impl<
         assert!(result.is_ok());
 
         for neighbour in self.out_neighbourhood.iter() {
-            neighbour.lock().unwrap().make_ready();
+            neighbour.read().unwrap().make_ready();
         }
     }
 }
@@ -87,7 +91,7 @@ impl<
         seen.push(&self.data);
         self.out_neighbourhood.iter().any(|neighbour| {
             // Assuming the guard is held by the current function, this would indicate a cycle
-            let Ok(neighbour) = neighbour.try_lock() else { 
+            let Ok(neighbour) = neighbour.try_read() else { 
                 event!(Level::TRACE, "Failed to get guard");
                 return false 
             };
