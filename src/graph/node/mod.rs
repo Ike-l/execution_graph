@@ -106,7 +106,7 @@ impl<
         }
 
         // Cycle
-        if seen.insert(self.data.clone()) {
+        if !seen.insert(self.data.clone()) {
             event!(Level::TRACE, "Cycle");
             return false;
         }
@@ -126,9 +126,7 @@ impl<
     }
 }
 
-impl<
-    T: PartialEq + Debug
-> Node<T> {
+impl<T> Node<T> where T: Debug + PartialEq {
     /// If you know the length if small
     pub fn contains_child_2<'a>(
         &'a self, 

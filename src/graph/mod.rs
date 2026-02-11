@@ -1,4 +1,4 @@
-use std::{collections::HashSet, fmt::Debug, hash::Hash, sync::Arc};
+use std::{collections::{HashMap, HashSet}, fmt::Debug, hash::Hash, sync::Arc};
 
 use parking_lot::RwLock;
 use tracing::{Level, event, span};
@@ -32,12 +32,132 @@ impl<
 impl<T> Graph<T> 
     where T: Debug + PartialEq + Eq + Hash + Clone
 {
+    /// Automatically chooses the best implementation based on world size & benchmarking
+    /// 
     /// assumes Links are sorted with priority at the end
-    pub fn new(mut world: HashSet<T>, mut links: Vec<Link<T>>) -> Self {
+    /// 
+    /// assumes links is a subset of world
+    pub fn new(world: HashSet<T>, links: Vec<Link<T>>) -> Self {
+        if world.len() < 64 {
+            Self::new_3(world, links)
+        } else {
+            Self::new_2(world, links)
+        }
+    }
+
+    /// Uses HashSet implementation
+    /// 
+    /// assumes Links are sorted with priority at the end
+    /// 
+    /// assumes links is a subset of world
+    pub fn new_2(mut world: HashSet<T>, mut links: Vec<Link<T>>) -> Self {
         let span = span!(Level::INFO, "New Graph");
         let _enter = span.enter();
 
-        // HashMap<T: Node<T>>
+        let mut nodes: HashMap<T, Arc<RwLock<Node<T>>>> = HashMap::with_capacity(links.len());
+        // let mut nodes: Vec<Arc<RwLock<Node<T>>>> = Vec::with_capacity(links.len());
+        while let Some(Link { from, to, ..}) = links.pop() {
+            let span = span!(Level::DEBUG, "Found Link", from =? from, to =? to);
+            let _enter = span.enter();
+
+            event!(Level::DEBUG, "Processing");
+
+            if to == from {
+                event!(Level::WARN, "Link is intangible");
+                continue;
+            }
+
+            world.remove(&to);
+            
+            let to_node = if let Some(to_node) = nodes.get(&to) {
+            // let to_node = if let Some(to_node) = nodes
+            // .iter()
+            // .find(|node| 
+            //     *node
+            //     .read()
+            //     .data() == to
+            // ) {
+                event!(Level::TRACE, "Found 'to' Node");
+                
+                if to_node.read().contains_child(&from, &mut HashSet::new()) {
+                    event!(Level::WARN, "Found cycle");
+                    
+                    continue;
+                }
+                
+                event!(Level::TRACE, "No cycle found");
+                
+                Arc::clone(&to_node)
+            } else {
+                event!(Level::TRACE, "No 'to' Node");
+                
+                let to_node = Arc::new(RwLock::new(Node::new(to.clone())));
+                // let to_node = Arc::new(RwLock::new(Node::new(to)));
+                nodes.insert(to, Arc::clone(&to_node));
+                // nodes.push(Arc::clone(&to_node));
+                to_node
+            };
+
+            world.remove(&from);
+
+            to_node.write().make_unready();
+            event!(Level::TRACE, "Made 'to' Node unready");
+
+            if let Some(from_node) = nodes.get(&from) {
+            // if let Some(from_node) = nodes
+            //     .iter()
+            //     .find(|node| 
+            //         *node
+            //             .read()
+            //             .data() == from
+            //     ) {
+                event!(Level::TRACE, "Found 'from' Node");
+
+                from_node.write().insert_out_neighbour(to_node);
+            } else {
+                event!(Level::TRACE, "No 'from' Node");
+
+                let mut from_node = Node::new(from.clone());
+                // let mut from_node = Node::new(from);
+                from_node.insert_out_neighbour(to_node);
+
+                let from_node = Arc::new(RwLock::new(from_node));
+                nodes.insert(from, Arc::clone(&from_node));
+                // nodes.push(Arc::clone(&from_node));
+            }
+        }
+
+        let span = span!(Level::INFO, "Checking Isolated Leaves");
+        let _enter = span.enter();
+        for isolated_leaf in world {
+            event!(Level::DEBUG, leaf =? isolated_leaf);
+            
+            let node = Arc::new(RwLock::new(Node::new(isolated_leaf.clone())));
+            // let node = Arc::new(RwLock::new(Node::new(isolated_leaf)));
+            nodes.insert(isolated_leaf, node);
+            // nodes.push(node);
+        }
+
+        let nodes = nodes.into_iter().map(|(_, node)| node).collect();
+
+        Self {
+            nodes
+        }
+    }
+}
+
+impl<T> Graph<T> 
+    where T: Debug + PartialEq + Eq + Hash 
+{
+    /// Uses Vec implementation
+    /// 
+    /// assumes Links are sorted with priority at the end
+    /// 
+    /// assumes links is a subset of world
+    pub fn new_3(mut world: HashSet<T>, mut links: Vec<Link<T>>) -> Self {
+        let span = span!(Level::INFO, "New Graph");
+        let _enter = span.enter();
+
         let mut nodes: Vec<Arc<RwLock<Node<T>>>> = Vec::with_capacity(links.len());
         while let Some(Link { from, to, ..}) = links.pop() {
             let span = span!(Level::DEBUG, "Found Link", from =? from, to =? to);
@@ -61,7 +181,7 @@ impl<T> Graph<T>
             ) {
                 event!(Level::TRACE, "Found 'to' Node");
                 
-                if to_node.read().contains_child(&from, &mut HashSet::new()) {
+                if to_node.read().contains_child_2(&from, Vec::new()) {
                     event!(Level::WARN, "Found cycle");
                     
                     continue;
@@ -138,7 +258,7 @@ mod tests {
                 .without_time()
                 .with_target(false)
 
-                .with_max_level(tracing::Level::DEBUG)
+                .with_max_level(tracing::Level::TRACE)
                 .with_test_writer()           
                 .init();
         });
@@ -444,6 +564,44 @@ mod tests {
         assert_eq!(leaves.len(), 0);
     }
 
+    #[test]
+    fn simple_cycle() {
+        init_tracing();
+        let a = "A";
+        let b = "B";
+
+        let links = vec![
+            Link::new(a, b),
+            Link::new(b, a)
+        ];
+
+        let mut world = HashSet::new();
+        world.insert(a);
+        world.insert(b);
+
+        let graph = Graph::new(world, links); 
+
+        let leaves = graph.find_leaves();
+        assert_eq!(leaves.len(), 1);
+
+        let leaf = leaves.first().unwrap();
+        assert_eq!(leaf.read().data().to_string(), b.to_string());
+
+        leaf.write().complete();
+
+        let leaves = graph.find_leaves();
+        assert_eq!(leaves.len(), 1);
+
+        let leaf = leaves.first().unwrap();
+        assert_eq!(leaf.read().data().to_string(), a.to_string());
+
+        leaf.write().complete();
+
+        let leaves = graph.find_leaves();
+
+        assert_eq!(leaves.len(), 0);
+    }
+
     type I = u8;
 
     const CHAIN_SIZE: usize = 2000;
@@ -483,9 +641,9 @@ mod tests {
 
         #[test]
         fn build((world, chain) in input_strategy()) {
-            init_tracing();
+            // init_tracing();
 
-            let graph = Graph::new(world.clone(), chain);
+            let graph = Graph::new_2(world.clone(), chain);
 
             assert_eq!(world.len(), graph.nodes.len());
             assert!(complete_forest(world, &graph))
@@ -536,12 +694,4 @@ mod tests {
 
         world.is_empty()
     }
-
-    // fn gen_world(input: &Vec<Link<I>>) -> HashSet<I> {
-    //     input.iter().fold(HashSet::new(), |mut acc, cur| {
-    //         acc.insert(cur.from);
-    //         acc.insert(cur.to);
-    //         acc
-    //     })
-    // }
 }
