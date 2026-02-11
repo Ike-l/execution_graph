@@ -66,10 +66,11 @@ impl<
     }
 
     pub fn complete(&mut self) {
-        
+        self.status = Status::Complete;
 
-        let span = span!(Level::TRACE, "Notifying Neighbours");
+        let span = span!(Level::DEBUG, "Notifying Neighbours");
         let _enter = span.enter();
+
         for neighbour in self.out_neighbourhood.iter() {
             event!(Level::TRACE, neighbour =? neighbour.read().data());
 

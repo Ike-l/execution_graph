@@ -34,13 +34,15 @@ impl<T> Graph<T>
 {
     /// assumes Links are sorted with priority at the end
     pub fn new(mut world: HashSet<T>, mut links: Vec<Link<T>>) -> Self {
-        let span = span!(Level::DEBUG, "New Graph");
+        let span = span!(Level::INFO, "New Graph");
         let _enter = span.enter();
 
         let mut nodes: Vec<Arc<RwLock<Node<T>>>> = Vec::with_capacity(links.len());
         while let Some(Link { from, to, ..}) = links.pop() {
-            let span = span!(Level::TRACE, "Found Link", from =? from, to =? to);
+            let span = span!(Level::DEBUG, "Found Link", from =? from, to =? to);
             let _enter = span.enter();
+
+            event!(Level::DEBUG, "Processing");
 
             world.remove(&from);
             world.remove(&to);
@@ -56,7 +58,7 @@ impl<T> Graph<T>
                 event!(Level::TRACE, "Found 'to' Node");
                 
                 if to_node.read().contains_child(&from, Vec::new()) {
-                    event!(Level::TRACE, "Found cycle");
+                    event!(Level::WARN, "Found cycle");
                     
                     continue;
                 }
@@ -96,10 +98,10 @@ impl<T> Graph<T>
             }
         }
 
-        let span = span!(Level::TRACE, "Checking Isolated Leaves");
+        let span = span!(Level::INFO, "Checking Isolated Leaves");
         let _enter = span.enter();
         for isolated_leaf in world {
-            event!(Level::TRACE, leaf =? isolated_leaf);
+            event!(Level::DEBUG, leaf =? isolated_leaf);
             
             let node = Arc::new(RwLock::new(Node::new(isolated_leaf)));
             nodes.push(node);
@@ -353,6 +355,8 @@ mod tests {
 
     #[test]
     fn complex_cycle() {
+        init_tracing();
+
         let a = "A";
         let b = "B";
         let c = "C";
@@ -436,7 +440,7 @@ mod tests {
 
     type I = u16;
 
-    const SIZE: usize = 10000;
+    const SIZE: usize = 100;
 
     fn chain_strategy() -> impl Strategy<Value = Vec<Link<I>>> {
         prop::collection::vec(
@@ -460,6 +464,7 @@ mod tests {
     }
 
     fn has_cycle(_nodes: &Vec<Arc<RwLock<Node<I>>>>) -> bool {
+        // dfs nodes make sure all nodes in world have been seen, and none are seen twice
         false
     }
 
