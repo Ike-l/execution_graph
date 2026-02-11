@@ -30,7 +30,7 @@ impl<
 }
 
 impl<T> Graph<T> 
-    where T: PartialEq + Eq + Debug + Hash
+    where T: Debug + PartialEq + Eq + Hash + Clone
 {
     /// assumes Links are sorted with priority at the end
     pub fn new(mut world: HashSet<T>, mut links: Vec<Link<T>>) -> Self {
@@ -44,27 +44,30 @@ impl<T> Graph<T>
 
             event!(Level::DEBUG, "Processing");
 
-            world.remove(&from);
+            if to == from {
+                event!(Level::WARN, "Link is intangible");
+                continue;
+            }
+
             world.remove(&to);
             
-
             let to_node = if let Some(to_node) = nodes
-                .iter()
-                .find(|node| 
-                    *node
-                        .read()
-                        .data() == to
-                ) {
+            .iter()
+            .find(|node| 
+                *node
+                .read()
+                .data() == to
+            ) {
                 event!(Level::TRACE, "Found 'to' Node");
                 
-                if to_node.read().contains_child(&from, Vec::new()) {
+                if to_node.read().contains_child(&from, &mut HashSet::new()) {
                     event!(Level::WARN, "Found cycle");
                     
                     continue;
                 }
-
+                
                 event!(Level::TRACE, "No cycle found");
-
+                
                 Arc::clone(&to_node)
             } else {
                 event!(Level::TRACE, "No 'to' Node");
@@ -73,6 +76,8 @@ impl<T> Graph<T>
                 nodes.push(Arc::clone(&to_node));
                 to_node
             };
+
+            world.remove(&from);
 
             to_node.write().make_unready();
             event!(Level::TRACE, "Made 'to' Node unready");
@@ -117,18 +122,22 @@ impl<T> Graph<T>
 mod tests {
     use crate::prelude::*;
 
-    use parking_lot::RwLock;
-    use proptest::{prelude::{Strategy, any, prop}, proptest};
+    use proptest::prelude::*;
+    use tracing::{Level, event, span};
     use tracing_subscriber::fmt;
-    use std::{collections::HashSet, sync::{Arc, Once}};
+
+    use std::{collections::HashSet, sync::Once};
 
     static INIT: Once = Once::new();
 
     fn init_tracing() {
         INIT.call_once(|| {
             fmt()
-                .with_max_level(tracing::Level::TRACE)
+                .with_ansi(false)
+                .without_time()
                 .with_target(false)
+
+                .with_max_level(tracing::Level::DEBUG)
                 .with_test_writer()           
                 .init();
         });
@@ -219,8 +228,6 @@ mod tests {
 
     #[test]
     fn complex_scenario() {
-        init_tracing();
-
         let a = "A";
         let b = "B";
         let c = "C";
@@ -355,8 +362,6 @@ mod tests {
 
     #[test]
     fn complex_cycle() {
-        init_tracing();
-
         let a = "A";
         let b = "B";
         let c = "C";
@@ -438,41 +443,104 @@ mod tests {
         assert_eq!(leaves.len(), 0);
     }
 
-    type I = u16;
+    type I = u8;
 
-    const SIZE: usize = 100;
+    const CHAIN_SIZE: usize = 3000;
+    const WORLD_SIZE: usize = 1000;
 
-    fn chain_strategy() -> impl Strategy<Value = Vec<Link<I>>> {
+    fn chain_strategy(world: HashSet<I>) -> impl Strategy<Value = Vec<Link<I>>> {
+        let world = world.into_iter().collect::<Vec<_>>();
         prop::collection::vec(
             (
-                any::<I>(), 
-                any::<I>(), 
+                prop::sample::select(world.clone()), 
+                prop::sample::select(world), 
             ).prop_map(|(from, to)| Link::new(from, to)),
-            SIZE
+            1..=CHAIN_SIZE
         )
     }
 
+    fn world_strategy() -> impl Strategy<Value = HashSet<I>> {
+        prop::collection::hash_set(
+            any::<I>(), 
+            1..=WORLD_SIZE
+        )
+    }
+
+    fn input_strategy() -> impl Strategy<Value = (HashSet<I>, Vec<Link<I>>)> {
+        world_strategy().prop_flat_map(|world| {
+            let chain = chain_strategy(world.clone());
+            (prop::strategy::Just(world), chain)
+        })
+    }
+
     proptest! {
+        #![proptest_config(ProptestConfig {
+            cases: 256,
+            max_shrink_iters: 100_000,
+            .. ProptestConfig::default()
+        })]
+
         #[test]
-        fn build(input in chain_strategy()) {
-            let world = get_world(&input);
-            let graph = Graph::new(world.clone(), input);
+        fn build((world, chain) in input_strategy()) {
+            init_tracing();
+
+            let graph = Graph::new(world.clone(), chain);
 
             assert_eq!(world.len(), graph.nodes.len());
-            assert!(!has_cycle(graph.nodes()))
+            assert!(complete_forest(world, &graph))
+            // assert!(!has_cycle(graph.nodes()))
         }
     }
 
-    fn has_cycle(_nodes: &Vec<Arc<RwLock<Node<I>>>>) -> bool {
-        // dfs nodes make sure all nodes in world have been seen, and none are seen twice
-        false
+    // All nodes are visited
+    // A node is only visited Once
+    fn complete_forest(
+        mut world: HashSet<I>, 
+        graph: &Graph<I>, 
+    ) -> bool {
+        let span = span!(Level::INFO, "Checking Graph");
+        let _enter = span.enter();
+
+        let mut count = 0;
+        loop {
+            let mut leaves = graph.find_leaves();
+            if leaves.is_empty() {
+                event!(Level::INFO, "Completed Leaves");
+                break;
+            }
+
+            for _ in 0..2 {
+                let Some(leaf) = leaves.pop() else { break; };
+                
+                let mut leaf = leaf.write();
+                
+                let data = leaf.data();
+                let out_degree = leaf.out_degree();
+                
+                let in_degree = leaf.in_degree();
+                assert_eq!(in_degree, 0);
+    
+                let span = span!(Level::DEBUG, "Leaf", data = data, out_degree = out_degree);
+                let _enter = span.enter();
+    
+                event!(Level::INFO, count = count);
+    
+                assert!(world.contains(&data));
+                world.remove(&data);
+    
+                leaf.complete();
+                count += 1;
+            }
+        };
+
+        world.is_empty()
     }
 
-    fn get_world(input: &Vec<Link<I>>) -> HashSet<I> {
-        input.iter().fold(HashSet::new(), |mut acc, cur| {
-            acc.insert(cur.from);
-            acc.insert(cur.to);
-            acc
-        })
-    }
+    // fn gen_world(input: &Vec<Link<I>>) -> HashSet<I> {
+    //     input.iter().fold(HashSet::new(), |mut acc, cur| {
+    //         acc.insert(cur.from);
+    //         acc.insert(cur.to);
+    //         acc
+    //     })
+    // }
 }

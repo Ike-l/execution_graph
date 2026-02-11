@@ -1,4 +1,4 @@
-use std::{fmt::Debug, sync::{Arc, atomic::{AtomicUsize, Ordering}}};
+use std::{collections::HashSet, fmt::Debug, hash::Hash, sync::{Arc, atomic::{AtomicUsize, Ordering}}};
 
 use parking_lot::RwLock;
 use tracing::{Level, event, span};
@@ -48,6 +48,18 @@ impl<
         &self.data
     }
 
+    pub fn out_degree(&self) -> usize {
+        self.out_neighbourhood.len()
+    }
+
+    pub fn in_degree(&self) -> usize {
+        self.ready.load(Ordering::Acquire)
+    }
+
+    pub fn status(&self) -> &Status {
+        &self.status
+    }
+
     pub fn insert_out_neighbour(&mut self, neighbour: Arc<RwLock<Self>>) {
         self.out_neighbourhood.push(neighbour);
     }
@@ -80,9 +92,49 @@ impl<
 }
 
 impl<
+    T: Debug + PartialEq + Eq + Hash + Clone
+> Node<T> {
+    pub fn contains_child(
+        &self, 
+        child: &T, 
+        seen: &mut HashSet<T>
+    ) -> bool {
+        // Found
+        if *child == self.data {
+            event!(Level::TRACE, "Found");
+            return true;
+        }
+
+        // Cycle
+        if seen.insert(self.data.clone()) {
+            event!(Level::TRACE, "Cycle");
+            return false;
+        }
+
+        self.out_neighbourhood.iter().any(|neighbour| {
+            // Assuming the guard is held by the current function, this would indicate a cycle
+            let Some(neighbour) = neighbour.try_read() else { 
+                event!(Level::TRACE, "Failed to get guard");
+                return false 
+            };
+
+            let span = span!(Level::TRACE, "Checking neighbour", data =? neighbour.data());
+            let _enter = span.enter();
+            
+            neighbour.contains_child(child, seen)
+        })
+    }
+}
+
+impl<
     T: PartialEq + Debug
 > Node<T> {
-    pub fn contains_child<'a>(&'a self, child: &T, mut seen: Vec<&'a T>) -> bool {
+    /// If you know the length if small
+    pub fn contains_child_2<'a>(
+        &'a self, 
+        child: &T, 
+        mut seen: Vec<&'a T>
+    ) -> bool {
         // Found
         if *child == self.data {
             event!(Level::TRACE, "Found");
@@ -106,7 +158,7 @@ impl<
             let span = span!(Level::TRACE, "Checking neighbour", data =? neighbour.data());
             let _enter = span.enter();
             
-            neighbour.contains_child(child, seen.clone())
+            neighbour.contains_child_2(child, seen.clone())
         })
     }
 }
