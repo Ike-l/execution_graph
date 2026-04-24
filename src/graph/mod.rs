@@ -6,6 +6,7 @@ use tracing::{Level, event, span};
 use crate::prelude::{Node, Link};
 
 pub mod node;
+pub mod flow;
 
 pub struct Graph<T> {
     nodes: Vec<Arc<RwLock<Node<T>>>>,

@@ -5,6 +5,9 @@ pub mod prelude {
     pub use super::{
         graph::{
             Graph,
+            flow::{
+                Flow
+            },
             node::{
                 Node,
                 status::{
