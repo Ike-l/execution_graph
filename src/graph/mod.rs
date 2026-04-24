@@ -35,9 +35,11 @@ impl<T> Graph<T>
 {
     /// Automatically chooses the best implementation based on input size & benchmarking
     /// 
-    /// assumes Links are sorted with priority at the end
+    /// links are treated with the "Highest Priority" at the end of the list
     /// 
     /// assumes links is a subset of world
+    /// 
+    /// attempts to minimise "Flow"
     pub fn new(world: HashSet<T>, links: Vec<Link<T>>) -> Self {
         if links.len() < 64 {
             Self::new_3(world, links)
@@ -48,9 +50,11 @@ impl<T> Graph<T>
 
     /// Uses HashSet implementation
     /// 
-    /// assumes Links are sorted with priority at the end
+    /// links are treated with the "Highest Priority" at the end of the list
     /// 
     /// assumes links is a subset of world
+    /// 
+    /// attempts to minimise "Flow"
     pub fn new_2(mut world: HashSet<T>, mut links: Vec<Link<T>>) -> Self {
         let span = span!(Level::INFO, "New Graph");
         let _enter = span.enter();
@@ -152,9 +156,11 @@ impl<T> Graph<T>
 {
     /// Uses Vec implementation
     /// 
-    /// assumes Links are sorted with priority at the end
+    /// links are treated with the "Highest Priority" at the end of the list
     /// 
     /// assumes links is a subset of world
+    /// 
+    /// attempts to minimise "Flow"
     pub fn new_3(mut world: HashSet<T>, mut links: Vec<Link<T>>) -> Self {
         let span = span!(Level::INFO, "New Graph");
         let _enter = span.enter();
