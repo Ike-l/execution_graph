@@ -276,7 +276,7 @@ mod tests {
         world.insert(a);
         world.insert(b);
 
-        let a_to_b = Link::new(a, b);
+        let a_to_b = Link::cheap(a, b);
         
         let links = vec![a_to_b];
 
@@ -308,8 +308,8 @@ mod tests {
         let b = "B";
         let c = "C";
         
-        let a_to_b = Link::new(a, b);
-        let b_to_c = Link::new(b, c);
+        let a_to_b = Link::cheap(a, b);
+        let b_to_c = Link::cheap(b, c);
 
         let mut world = HashSet::new();
         world.insert(a);
@@ -376,15 +376,15 @@ mod tests {
         world.insert(k);
         
         let links = vec![
-            Link::new(a, b), 
-            Link::new(b, d), 
-            Link::new(d, c), 
-            Link::new(d, f), 
-            Link::new(e, d), 
-            Link::new(f, g), 
-            Link::new(g, i), 
-            Link::new(h, g), 
-            Link::new(j, k), 
+            Link::cheap(a, b), 
+            Link::cheap(b, d), 
+            Link::cheap(d, c), 
+            Link::cheap(d, f), 
+            Link::cheap(e, d), 
+            Link::cheap(f, g), 
+            Link::cheap(g, i), 
+            Link::cheap(h, g), 
+            Link::cheap(j, k), 
         ];
 
         let graph = Graph::new(world, links);
@@ -502,15 +502,15 @@ mod tests {
         world.insert(g);
         
         let links = vec![
-            Link::new(a, b), 
-            Link::new(b, c), 
-            Link::new(c, d), 
-            Link::new(e, f), 
-            Link::new(c, e),
+            Link::cheap(a, b), 
+            Link::cheap(b, c), 
+            Link::cheap(c, d), 
+            Link::cheap(e, f), 
+            Link::cheap(c, e),
 
-            Link::new(g, e), 
+            Link::cheap(g, e), 
 
-            Link::new(e, b), 
+            Link::cheap(e, b), 
         ];
 
         let graph = Graph::new(world, links);
@@ -572,8 +572,8 @@ mod tests {
         let b = "B";
 
         let links = vec![
-            Link::new(a, b),
-            Link::new(b, a)
+            Link::cheap(a, b),
+            Link::cheap(b, a)
         ];
 
         let mut world = HashSet::new();
@@ -614,7 +614,7 @@ mod tests {
             (
                 prop::sample::select(world.clone()), 
                 prop::sample::select(world), 
-            ).prop_map(|(from, to)| Link::new(from, to)),
+            ).prop_map(|(from, to)| Link::cheap(from, to)),
             1..=CHAIN_SIZE
         )
     }
