@@ -7,14 +7,14 @@ use crate::prelude::{Node, Link};
 
 pub mod node;
 
-pub struct Graph<T> {
-    nodes: Vec<Arc<RwLock<Node<T>>>>,
+pub struct Graph<Identifier> {
+    nodes: Vec<Arc<RwLock<Node<Identifier>>>>,
 }
 
 impl<
-    T: Debug
-> Graph<T> {
-    pub fn find_leaves(&self) -> Vec<Arc<RwLock<Node<T>>>> {
+    Identifier: Debug
+> Graph<Identifier> {
+    pub fn find_leaves(&self) -> Vec<Arc<RwLock<Node<Identifier>>>> {
         self.nodes.iter().filter_map(|node| {
             if node.read().is_ready() {
                 Some(Arc::clone(node))
@@ -24,20 +24,20 @@ impl<
         }).collect()
     }
 
-    pub fn nodes(&self) -> &Vec<Arc<RwLock<Node<T>>>> {
+    pub fn nodes(&self) -> &Vec<Arc<RwLock<Node<Identifier>>>> {
         &self.nodes
     }
 }
 
-impl<T> Graph<T> 
-    where T: Debug + PartialEq + Eq + Hash + Clone
+impl<Identifier> Graph<Identifier> 
+    where Identifier: Debug + PartialEq + Eq + Hash + Clone
 {
     /// Automatically chooses the best implementation based on input size & benchmarking
     /// 
     /// assumes Links are sorted with priority at the end
     /// 
     /// assumes links is a subset of world
-    pub fn new(world: HashSet<T>, links: Vec<Link<T>>) -> Self {
+    pub fn new(world: HashSet<Identifier>, links: Vec<Link<Identifier>>) -> Self {
         if links.len() < 64 {
             Self::new_3(world, links)
         } else {
@@ -50,12 +50,12 @@ impl<T> Graph<T>
     /// assumes Links are sorted with priority at the end
     /// 
     /// assumes links is a subset of world
-    pub fn new_2(mut world: HashSet<T>, mut links: Vec<Link<T>>) -> Self {
+    pub fn new_2(mut world: HashSet<Identifier>, mut links: Vec<Link<Identifier>>) -> Self {
         let span = span!(Level::INFO, "New Graph");
         let _enter = span.enter();
 
-        let mut nodes: HashMap<T, Arc<RwLock<Node<T>>>> = HashMap::with_capacity(links.len());
-        // let mut nodes: Vec<Arc<RwLock<Node<T>>>> = Vec::with_capacity(links.len());
+        let mut nodes: HashMap<Identifier, Arc<RwLock<Node<Identifier>>>> = HashMap::with_capacity(links.len());
+        // let mut nodes: Vec<Arc<RwLock<Node<Identifier>>>> = Vec::with_capacity(links.len());
         while let Some(Link { from, to, ..}) = links.pop() {
             let span = span!(Level::DEBUG, "Found Link", from =? from, to =? to);
             let _enter = span.enter();
@@ -146,19 +146,19 @@ impl<T> Graph<T>
     }
 }
 
-impl<T> Graph<T> 
-    where T: Debug + PartialEq + Eq + Hash 
+impl<Identifier> Graph<Identifier> 
+    where Identifier: Debug + PartialEq + Eq + Hash 
 {
     /// Uses Vec implementation
     /// 
     /// assumes Links are sorted with priority at the end
     /// 
     /// assumes links is a subset of world
-    pub fn new_3(mut world: HashSet<T>, mut links: Vec<Link<T>>) -> Self {
+    pub fn new_3(mut world: HashSet<Identifier>, mut links: Vec<Link<Identifier>>) -> Self {
         let span = span!(Level::INFO, "New Graph");
         let _enter = span.enter();
 
-        let mut nodes: Vec<Arc<RwLock<Node<T>>>> = Vec::with_capacity(links.len());
+        let mut nodes: Vec<Arc<RwLock<Node<Identifier>>>> = Vec::with_capacity(links.len());
         while let Some(Link { from, to, ..}) = links.pop() {
             let span = span!(Level::DEBUG, "Found Link", from =? from, to =? to);
             let _enter = span.enter();
@@ -249,10 +249,10 @@ mod tests {
 
     use std::{collections::HashSet, sync::Once};
 
-    static INIT: Once = Once::new();
+    static INIIdentifier: Once = Once::new();
 
     fn init_tracing() {
-        INIT.call_once(|| {
+        INIIdentifier.call_once(|| {
             fmt()
                 .with_ansi(false)
                 .without_time()
