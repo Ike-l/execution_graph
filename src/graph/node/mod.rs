@@ -64,11 +64,11 @@ impl<
         self.out_neighbourhood.push(neighbour);
     }
 
-    pub fn make_unready_one(&self) {
+    pub fn make_one_unready(&self) {
         self.ready.fetch_add(1, Ordering::AcqRel);
     }
 
-    pub fn make_ready_one(&self) {
+    pub fn make_one_ready(&self) {
         self.ready.fetch_sub(1, Ordering::AcqRel);
     }
 
@@ -86,7 +86,7 @@ impl<
         for neighbour in self.out_neighbourhood.iter() {
             event!(Level::TRACE, neighbour =? neighbour.read().data());
 
-            neighbour.read().make_ready_one();
+            neighbour.read().make_one_ready();
         }
     }
 }
