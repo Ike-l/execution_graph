@@ -106,7 +106,7 @@ impl<Identifier> Graph<Identifier>
 
             world.remove(&from);
 
-            to_node.write().make_unready();
+            to_node.write().make_unready_one();
             event!(Level::TRACE, "Made 'to' Node unready");
 
             if let Some(from_node) = nodes.get(&from) {
@@ -206,7 +206,7 @@ impl<Identifier> Graph<Identifier>
 
             world.remove(&from);
 
-            to_node.write().make_unready();
+            to_node.write().make_unready_one();
             event!(Level::TRACE, "Made 'to' Node unready");
 
             if let Some(from_node) = nodes
