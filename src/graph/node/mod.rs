@@ -89,6 +89,10 @@ impl<
             neighbour.read().make_one_ready();
         }
     }
+
+    pub fn make_pending(&mut self) {
+        self.status = Status::Pending;
+    }
 }
 
 impl<
