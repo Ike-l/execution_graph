@@ -14,6 +14,12 @@ pub struct Graph<Identifier> {
 impl<
     Identifier: Debug
 > Graph<Identifier> {
+    pub fn is_finished(&self) -> bool {
+        !self.nodes.iter().any(|node| {
+            !node.read().is_ready()
+        })
+    }
+
     pub fn find_leaves(&self) -> Vec<Arc<RwLock<Node<Identifier>>>> {
         self.nodes.iter().filter_map(|node| {
             if node.read().is_ready() {
