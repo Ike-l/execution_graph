@@ -16,7 +16,7 @@ impl<
 > Graph<Identifier> {
     pub fn is_finished(&self) -> bool {
         !self.nodes.iter().any(|node| {
-            !node.read().is_ready()
+            node.read().is_ready()
         })
     }
 
