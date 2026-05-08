@@ -42,7 +42,7 @@ impl<Identifier> Graph<Identifier>
     /// 
     /// assumes Links are sorted with priority at the end
     /// 
-    /// assumes links is a subset of world
+    /// discards links if it tries linking a node which doesn't exist in world
     pub fn new(world: HashSet<Identifier>, links: Vec<Link<Identifier>>) -> Self {
         if links.len() < 64 {
             Self::new_3(world, links)
@@ -55,10 +55,19 @@ impl<Identifier> Graph<Identifier>
     /// 
     /// assumes Links are sorted with priority at the end
     /// 
-    /// assumes links is a subset of world
+    /// discards links if it tries linking a node which doesn't exist in world
     pub fn new_2(mut world: HashSet<Identifier>, mut links: Vec<Link<Identifier>>) -> Self {
         let span = span!(Level::INFO, "New Graph");
         let _enter = span.enter();
+
+        links.retain(|link| {
+            match (world.contains(&link.from), world.contains(&link.to)) {
+                (true, true) => true,
+                (true, false) => { event!(Level::DEBUG, "No `to` in world"); false },
+                (false, true) => { event!(Level::DEBUG, "No `from` in world"); false },
+                (false, false) => { event!(Level::DEBUG, "No `from` and No `to` in world"); false},
+            }
+        });
 
         let mut nodes: HashMap<Identifier, Arc<RwLock<Node<Identifier>>>> = HashMap::with_capacity(links.len());
         // let mut nodes: Vec<Arc<RwLock<Node<Identifier>>>> = Vec::with_capacity(links.len());
@@ -76,13 +85,6 @@ impl<Identifier> Graph<Identifier>
             world.remove(&to);
             
             let to_node = if let Some(to_node) = nodes.get(&to) {
-            // let to_node = if let Some(to_node) = nodes
-            // .iter()
-            // .find(|node| 
-            //     *node
-            //     .read()
-            //     .data() == to
-            // ) {
                 event!(Level::TRACE, "Found 'to' Node");
                 
                 if to_node.read().contains_child(&from, &mut HashSet::new()) {
@@ -98,9 +100,9 @@ impl<Identifier> Graph<Identifier>
                 event!(Level::TRACE, "No 'to' Node");
                 
                 let to_node = Arc::new(RwLock::new(Node::new(to.clone())));
-                // let to_node = Arc::new(RwLock::new(Node::new(to)));
+
                 nodes.insert(to, Arc::clone(&to_node));
-                // nodes.push(Arc::clone(&to_node));
+
                 to_node
             };
 
@@ -110,13 +112,6 @@ impl<Identifier> Graph<Identifier>
             event!(Level::TRACE, "Made 'to' Node unready");
 
             if let Some(from_node) = nodes.get(&from) {
-            // if let Some(from_node) = nodes
-            //     .iter()
-            //     .find(|node| 
-            //         *node
-            //             .read()
-            //             .data() == from
-            //     ) {
                 event!(Level::TRACE, "Found 'from' Node");
 
                 from_node.write().insert_out_neighbour(to_node);
@@ -124,12 +119,10 @@ impl<Identifier> Graph<Identifier>
                 event!(Level::TRACE, "No 'from' Node");
 
                 let mut from_node = Node::new(from.clone());
-                // let mut from_node = Node::new(from);
                 from_node.insert_out_neighbour(to_node);
 
                 let from_node = Arc::new(RwLock::new(from_node));
                 nodes.insert(from, Arc::clone(&from_node));
-                // nodes.push(Arc::clone(&from_node));
             }
         }
 
@@ -139,9 +132,7 @@ impl<Identifier> Graph<Identifier>
             event!(Level::DEBUG, leaf =? isolated_leaf);
             
             let node = Arc::new(RwLock::new(Node::new(isolated_leaf.clone())));
-            // let node = Arc::new(RwLock::new(Node::new(isolated_leaf)));
             nodes.insert(isolated_leaf, node);
-            // nodes.push(node);
         }
 
         let nodes = nodes.into_iter().map(|(_, node)| node).collect();
@@ -159,10 +150,19 @@ impl<Identifier> Graph<Identifier>
     /// 
     /// assumes Links are sorted with priority at the end
     /// 
-    /// assumes links is a subset of world
+    /// discards links if it tries linking a node which doesn't exist in world
     pub fn new_3(mut world: HashSet<Identifier>, mut links: Vec<Link<Identifier>>) -> Self {
         let span = span!(Level::INFO, "New Graph");
         let _enter = span.enter();
+
+        links.retain(|link| {
+            match (world.contains(&link.from), world.contains(&link.to)) {
+                (true, true) => true,
+                (true, false) => { event!(Level::DEBUG, "No `to` in world"); false },
+                (false, true) => { event!(Level::DEBUG, "No `from` in world"); false },
+                (false, false) => { event!(Level::DEBUG, "No `from` and No `to` in world"); false},
+            }
+        });
 
         let mut nodes: Vec<Arc<RwLock<Node<Identifier>>>> = Vec::with_capacity(links.len());
         while let Some(Link { from, to, ..}) = links.pop() {
@@ -602,6 +602,101 @@ mod tests {
         assert_eq!(leaf.read().data().to_string(), a.to_string());
 
         leaf.write().complete();
+
+        let leaves = graph.find_leaves();
+
+        assert_eq!(leaves.len(), 0);
+    }
+
+    #[test]
+    fn links_not_subset() {
+        let a = "A";
+        let b = "B";
+        let c = "C";
+        let d = "D";
+        let e = "E";
+        let f = "F";
+        let g = "G";
+        let h = "H";
+        let i = "I";
+        let j = "J";
+        let k = "K";
+
+        let mut world = HashSet::new();
+        world.insert(a);
+        world.insert(b);
+        world.insert(c);
+        // world.insert(d);
+        world.insert(e);
+        world.insert(f);
+        world.insert(g);
+        world.insert(h);
+        world.insert(i);
+        world.insert(j);
+        world.insert(k);
+        
+        let links = vec![
+            Link::new(a, b), 
+            Link::new(b, d), 
+            Link::new(d, c), 
+            Link::new(d, f), 
+            Link::new(e, d), 
+            Link::new(f, g), 
+            Link::new(g, i), 
+            Link::new(h, g), 
+            Link::new(j, k), 
+        ];
+
+        let graph = Graph::new(world, links);
+
+        let leaves = graph.find_leaves();
+
+        let mut not_seen = HashSet::new();
+        not_seen.extend([
+            a.to_string(),
+            e.to_string(),
+            j.to_string(),
+            h.to_string(),
+            f.to_string(),
+            c.to_string(),
+        ]);
+
+        for leaf in leaves {
+            assert!(not_seen.contains(&leaf.read().data().to_string()));
+            not_seen.remove(&leaf.read().data().to_string());  
+
+            leaf.write().complete();
+        }
+
+        let leaves = graph.find_leaves();
+
+        let mut not_seen = HashSet::new();
+        not_seen.extend([
+            k.to_string(),
+            b.to_string(),
+            g.to_string(),
+        ]);
+
+        for leaf in leaves {
+            assert!(not_seen.contains(&leaf.read().data().to_string()));
+            not_seen.remove(&leaf.read().data().to_string());  
+
+            leaf.write().complete();
+        }
+
+        let leaves = graph.find_leaves();
+
+        let mut not_seen: HashSet<String> = HashSet::new();
+        not_seen.extend([
+            i.to_string(),
+        ]);
+
+        for leaf in leaves {
+            assert!(not_seen.contains(&leaf.read().data().to_string()));
+            not_seen.remove(&leaf.read().data().to_string());  
+
+            leaf.write().complete();
+        }
 
         let leaves = graph.find_leaves();
 
